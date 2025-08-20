@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lluvia de frases estilo Matrix</title>
+  <style>
+    :root {
+      --bg: #000;
+      --green: #ff00ee;
+      --dim: #0a0a0a;
+    }
+    html, body {
+      height: 100%;
+      margin: 0;
+      background: var(--bg);
+      color: #e5e7eb;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      overflow: hidden; /* evitamos scroll para efecto inmersivo */
+    }
+    #canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+      background: radial-gradient(1200px 800px at 50% 50%, #001f 0%, #000 60%);
+    }
+
+    /* Controles superpuestos */
+    .panel {
+      position: fixed;
+      inset: auto 1rem 1rem 1rem;
+      display: grid;
+      gap: .75rem;
+      grid-template-columns: 1fr auto auto auto;
+      align-items: start;
+      background: rgba(10, 14, 12, .55);
+      border: 1px solid rgba(245, 0, 255, 0.15);
+      backdrop-filter: blur(6px);
+      padding: .75rem;
+      border-radius: 16px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.5);
+    }
+    .panel > * { font-size: 14px; }
+    textarea {
+      grid-column: 1 / -1;
+      min-height: 70px;
+      resize: vertical;
+      width: 100%;
+      outline: none;
+      border-radius: 12px;
+      color: #fad1f3;
+      background: rgba(0,0,0,.35);
+      border: 1px solid rgba(217, 0, 255, 0.2);
+      padding: .6rem .7rem;
+    }
+    .row { display: contents; }
+    .btn {
+      cursor: pointer;
+      background: linear-gradient(180deg, rgba(141, 13, 109), rgba(255, 0, 191, 0.35));
+      border: 1px solid rgb(141, 13, 109);
+      padding: .5rem .8rem;
+      border-radius: 12px;
+      color: #ffccec;
+      font-weight: 600;
+      transition: transform .05s ease;
+      user-select: none;
+    }
+    .btn:active { transform: translateY(1px); }
+    label { display: grid; gap: .25rem; }
+    input[type="range"], input[type="number"] {
+      accent-color: var(--green);
+      background: transparent;
+      color: #ffccf5;
+      border-radius: 10px;
+      border: 1px solid rgba(229, 0, 255, 0.25);
+      padding: .25rem .4rem;
+    }
+    .tog {
+      display: inline-flex; align-items: center; gap: .5rem;
+      background: rgba(0,0,0,.25); padding: .4rem .6rem; border-radius: 10px;
+      border: 1px solid rgba(239, 0, 255, 0.2);
+    }
+    .badge {
+      position: fixed; left: 1rem; top: 1rem; font-size: 12px; opacity:.7;
+      background: rgba(245, 0, 255, 0.08); border:1px solid rgba(255, 0, 228, 0.25);
+      color:#f3a7eb; padding:.35rem .6rem; border-radius: 999px;
+    }
+    @media (max-width: 780px){
+      .panel { grid-template-columns: 1fr 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+  <div class="badge">Haz clic/tap para pausar/reanudar</div>
+<div hidden>
+  Este bloque está oculto.
+
+
+  <section class="panel" >
+    <h2 style="position:absolute; left:-9999px;">Controles de la lluvia de frases</h2>
+    <textarea id="frases" placeholder="Escribe una frase por línea…"></textarea>
+
+    <label class="row">
+      Velocidad
+      <input id="velocidad" type="range" min="0.25" max="3" step="0.05" value="1" />
+    </label>
+    <label class="row">
+      Tamaño (px)
+      <input id="tamano" type="number" min="10" max="48" step="1" value="20" />
+    </label>
+    <label class="row">
+      Densidad
+      <input id="densidad" type="range" min="0.4" max="2.0" step="0.05" value="1.0" />
+    </label>
+
+    <button id="aplicar" class="btn">Aplicar frases</button>
+    <label class="tog"><input id="multicolor" type="checkbox" /> Multicolor</label>
+    <label class="tog"><input id="brillo" type="checkbox" checked /> Brillo</label>
+  </section>
+</div>
+  <script>
+    // ====== Utilidades ======
+    const rand = (min, max) => Math.random() * (max - min) + min;
+    const choice = arr => arr[Math.floor(Math.random() * arr.length)];
+
+    // ====== Canvas setup ======
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+
+    function resize(){
+      const dpr = Math.max(1, window.devicePixelRatio || 1);
+      canvas.width = Math.floor(window.innerWidth * dpr);
+      canvas.height = Math.floor(window.innerHeight * dpr);
+      ctx.setTransform(dpr,0,0,dpr,0,0); // pinta en CSS px
+      matrix.initColumns();
+    }
+    window.addEventListener('resize', resize);
+
+    // ====== Motor de lluvia ======
+    const matrix = {
+      colWidth: 26,
+      columns: [], // y por columna
+      speeds: [],  // velocidad por columna
+      phrases: [
+        'te amo pao', 
+      ],
+      fontSize: 20,
+      speedScale: 1,
+      density: 1.0,
+      multicolor: false,
+      glow: true,
+      initColumns(){
+        const cols = Math.max(1, Math.floor(window.innerWidth / this.colWidth * this.density));
+        this.columns = new Array(cols).fill(0).map(() => rand(-window.innerHeight, 0));
+        this.speeds = new Array(cols).fill(0).map(() => rand(40, 140));
+      },
+      step(dt){
+        for(let i=0;i<this.columns.length;i++){
+          this.columns[i] += this.speeds[i] * this.speedScale * dt;
+          if(this.columns[i] > window.innerHeight + rand(0, 200)){
+            this.columns[i] = rand(-window.innerHeight, -50);
+            this.speeds[i] = rand(40, 140);
+          }
+        }
+      },
+      draw(){
+        // rastro 
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.10)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.textBaseline = 'top';
+        ctx.font = `${this.fontSize}px monospace`;
+
+        const charH = this.fontSize * 1.2;
+
+        for(let i=0;i<this.columns.length;i++){
+          const x = Math.floor(i * (window.innerWidth / this.columns.length));
+          const y = this.columns[i];
+          const phrase = choice(this.phrases);
+
+          // cabeza brillante
+          if(this.glow){
+            ctx.shadowColor = this.multicolor ? `hsl(${(i*23)%360} 100% 60%)` : '#f16bff';
+            ctx.shadowBlur = 18;
+          } else {
+            ctx.shadowBlur = 0;
+          }
+          ctx.fillStyle = this.multicolor ? `hsl(${(i*23)%360} 100% 65%)` : 'rgb(255, 0, 250)';
+          ctx.fillText(phrase, x, y);
+
+          // cola tenue
+          ctx.shadowBlur = 0;
+          ctx.fillStyle = this.multicolor ? `hsla(${(i*23)%360}, 100%, 50%, .15)` : 'rgba(255, 0, 236, 0.15)';
+          for(let k = 1; k < 8; k++){
+            ctx.fillText(phrase, x, y - k * charH);
+          }
+        }
+      }
+    };
+
+    // ====== Animación ======
+    let last = performance.now();
+    let running = true;
+    function loop(now){
+      const dt = Math.min(0.033, (now - last) / 1000);
+      last = now;
+      if(running){
+        matrix.step(dt);
+        matrix.draw();
+      }
+      requestAnimationFrame(loop);
+    }
+
+    // Interacción (pausar con click/tap)
+    canvas.addEventListener('pointerdown', () => { running = !running; });
+
+    // ====== Controles ======
+    const $frases = document.getElementById('frases');
+    const $aplicar = document.getElementById('aplicar');
+    const $velocidad = document.getElementById('velocidad');
+    const $tamano = document.getElementById('tamano');
+    const $densidad = document.getElementById('densidad');
+    const $multicolor = document.getElementById('multicolor');
+    const $brillo = document.getElementById('brillo');
+
+    // precarga de frases ejemplo
+    $frases.value = matrix.phrases.join('\n');
+
+    $aplicar.addEventListener('click', () => {
+      const list = $frases.value
+        .split(/\n|\r/)
+        .map(s => s.trim())
+        .filter(Boolean);
+      if(list.length){
+        matrix.phrases = list;
+      }
+    });
+
+    $velocidad.addEventListener('input', e => matrix.speedScale = parseFloat(e.target.value));
+    $tamano.addEventListener('input', e => { matrix.fontSize = parseInt(e.target.value, 10); });
+    $densidad.addEventListener('input', e => { matrix.density = parseFloat(e.target.value); matrix.initColumns(); });
+    $multicolor.addEventListener('change', e => matrix.multicolor = e.target.checked);
+    $brillo.addEventListener('change', e => matrix.glow = e.target.checked);
+
+    // iniciar
+    resize();
+    // Fondo inicial más oscuro para un primer frame agradable
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
